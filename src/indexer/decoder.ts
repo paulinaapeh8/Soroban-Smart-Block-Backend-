@@ -2,6 +2,7 @@ import { xdr, scValToNative } from '@stellar/stellar-sdk';
 import { getContractAbi, decodeArgs, renderHuman } from './registry';
 import { parseInvokeHostFunction } from './xdr-parser';
 import { parseSep41Event, isSep41Event } from './sep41-parser';
+import { parseEnforcementEvent, isEnforcementEvent } from './enforcement-normalizer';
 import { prismaRead as prisma } from '../db';
 import { decodeMastercardFlags } from './identity-verifier';
 
@@ -131,6 +132,21 @@ export function decodeEvent(
       }
     }
 
+    // ── Enforcement / RWA fast path ─────────────────────────────────────────
+    if (isEnforcementEvent(rawSymbol)) {
+      const parsed = parseEnforcementEvent(topics, data);
+      if (parsed) {
+        const decoded: Record<string, unknown> = {
+          event: rawSymbol,
+          humanReadable: parsed.humanReadable,
+          ...Object.fromEntries(
+            Object.entries(parsed.fields).map(([k, v]) => [k, v.formatted])
+          ),
+        };
+        return { eventType: normalizeEventType(rawSymbol), topicSymbol: rawSymbol, decoded };
+      }
+    }
+
     // ── Generic fallback ────────────────────────────────────────────────────
     const dataVal = xdr.ScVal.fromXDR(data, 'base64');
     const decoded: Record<string, unknown> = {
@@ -153,6 +169,9 @@ function normalizeEventType(raw: string): string {
     'swap',
     'approve',
     'clawback',
+    'freeze',
+    'seize',
+    'set_authorized',
     'set_admin',
     'add_liquidity',
     'remove_liquidity',
